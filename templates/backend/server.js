@@ -29,6 +29,7 @@ app.use('/auth', authRoutes);
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
+app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 // Dynamic routes injected by agents — imported from routes/index.js
 try {

@@ -29,19 +29,65 @@ def frontend_agent(state: AppState) -> AppState:
         asyncio.run(stream_agent_start(client_id, "frontend"))
 
     try:
+        plan = state['plan']
+        backend_routes = state.get("backend_routes", [])
+        api_contracts = plan.get("api_contracts", [])
+        design = plan.get("design", {})
+
+        # Build routes context for frontend
+        routes_context = ""
+        if backend_routes:
+            routes_context = "ACTUAL BACKEND ROUTES (use these exact paths):\n"
+            for r in backend_routes:
+                routes_context += f"  {r['method']} {r['path']}\n"
+        elif api_contracts:
+            routes_context = "API CONTRACTS:\n"
+            for c in api_contracts:
+                routes_context += f"  {c['method']} {c['path']} → {c.get('response_shape', '')}\n"
+
+        # Build component specs context
+        component_specs = plan.get("component_specs", [])
+        specs_context = ""
+        if component_specs:
+            specs_context = "COMPONENT SPECS:\n"
+            for spec in component_specs:
+                specs_context += f"  {spec['name']}: {spec['description']}\n"
+                if spec.get("api_calls"):
+                    specs_context += f"    API calls: {', '.join(spec['api_calls'])}\n"
+
         messages = [
             SystemMessage(content=FRONTEND_SYSTEM),
             HumanMessage(content=(
-                f"Generate ALL frontend files for this app. Do not skip any file.\n\n"
-                f"Plan: {state['plan']}\n\n"
-                f"You MUST generate every frontend file listed here:\n"
-                f"{chr(10).join([f for f in state['plan']['file_structure'] if f.startswith('frontend/')])}\n\n"
-                f"Additionally always include:\n"
-                f"- src/hooks/useAuth.js — JWT auth hook with login/logout/user state\n"
-                f"- src/utils/api.js — Axios instance with REACT_APP_API_URL base URL and Authorization Bearer header interceptor\n"
-                f"- src/utils/tokenStorage.js — localStorage utility for JWT get/set/remove\n"
-                f"- src/pages/RegisterPage.jsx — registration form\n"
-                f"- Every component and hook listed in the plan components section"
+                f"Generate ALL frontend files for this app.\n\n"
+                f"CRITICAL PATH RULE: Every file path MUST start with 'frontend/src/'\n"
+                f"WRONG: src/App.jsx — CORRECT: frontend/src/App.jsx\n\n"
+                f"App: {plan.get('app_name')}\n"
+                f"Description: {plan.get('description')}\n\n"
+                f"Design:\n"
+                f"  Primary color: {design.get('primary_color', 'violet')}\n"
+                f"  Background: {design.get('background', 'gray-50')}\n"
+                f"  Dark mode: {design.get('dark_mode', False)}\n"
+                f"  Style: {design.get('style', 'minimal')}\n"
+                f"  Mood: {design.get('mood', 'Clean and modern')}\n"
+                f"  Card background: {design.get('card_background', 'white')}\n\n"
+                f"{routes_context}\n\n"
+                f"{specs_context}\n\n"
+                f"Frontend routes to generate:\n"
+                f"{chr(10).join(['  ' + r['path'] + ' → ' + r.get('component', '') for r in plan.get('frontend_routes', [])])}\n\n"
+                f"Files to generate:\n"
+                f"{chr(10).join([f for f in plan['file_structure'] if f.startswith('frontend/')])}\n\n"
+                f"Full plan: {plan}\n\n"
+                f"REMEMBER ALL WIRING RULES:\n"
+                f"- App.jsx uses getToken() not isAuthenticated\n"
+                f"- LoginPage and RegisterPage use useNavigate + redirect after success\n"
+                f"- RegisterPage has name field, calls register(name, email, password)\n"
+                f"- Hooks wrap fetch in useCallback, export fetchX function\n"
+                f"- Dashboard passes onSubmit AND onClose to form modals\n"
+                f"- Dashboard implements handleAdd: async (data) => {{ await addTask(data); setOpen(false); }}\n"
+                f"- Form components call onSubmit(data) then onClose()\n"
+                f"- Cards use item._id not item.id\n"
+                f"- All API calls use /api/ prefix\n\n"
+                f"Generate complete, beautiful, production-ready code."
             ))
         ]
 
@@ -51,12 +97,11 @@ def frontend_agent(state: AppState) -> AppState:
         if not frontend_code:
             raise ValueError("Frontend agent returned invalid JSON")
 
-        files = list(frontend_code.keys())
         logger.info(f"Frontend complete:\n{format_file_summary(frontend_code)}")
 
         if client_id:
             from api.websocket import stream_agent_complete
-            asyncio.run(stream_agent_complete(client_id, "frontend", files))
+            asyncio.run(stream_agent_complete(client_id, "frontend", list(frontend_code.keys())))
 
         return {"frontend_code": frontend_code}
 

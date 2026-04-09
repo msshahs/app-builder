@@ -91,4 +91,4 @@ if __name__ == "__main__":
         uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
     else:
         # Run once from terminal
-        run_once("Build me a task management app with user authentication and MongoDB")
+        run_once("Build a minimal task manager with a dark theme, use emerald green as the primary color, clean and focused like Linear")

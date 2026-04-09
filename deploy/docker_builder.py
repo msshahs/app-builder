@@ -56,16 +56,17 @@ def build_and_push_frontend(project_id: str, project_dir: str, backend_url: str)
 
     # Check if Dockerfile exists, create one if not
     dockerfile_path = os.path.join(frontend_dir, "Dockerfile")
-    if not os.path.exists(dockerfile_path):
-        with open(dockerfile_path, "w") as f:
-            f.write("""FROM node:20-alpine
+    with open(dockerfile_path, "w") as f:
+        f.write("""FROM node:20-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
 RUN npm run build
+
 FROM nginx:alpine
-COPY --from=0 /app/dist /usr/share/nginx/html
+COPY --from=build /app/dist /usr/share/nginx/html
+RUN echo 'server { listen 80; location / { root /usr/share/nginx/html; index index.html; try_files $uri $uri/ /index.html; } }' > /etc/nginx/conf.d/default.conf
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
 """)
@@ -118,37 +119,37 @@ def write_backend_package_json(backend_dir: str):
         logger.info("Generated backend package.json")
 
 def write_frontend_package_json(frontend_dir: str):
-    """Create package.json if agents didn't generate one."""
+    """Always write correct package.json with all required dependencies."""
+    import json
     package_path = os.path.join(frontend_dir, "package.json")
-    if not os.path.exists(package_path):
-        import json
-        package = {
-            "name": "app-builder-frontend",
-            "version": "1.0.0",
-            "type": "module",
-            "scripts": {
-                "dev": "vite",
-                "build": "vite build",
-                "preview": "vite preview"
-            },
-            "dependencies": {
-                "react": "^18.2.0",
-                "react-dom": "^18.2.0",
-                "react-router-dom": "^6.20.0",
-                "axios": "^1.6.2",
-                "prop-types": "^15.8.1"
-            },
-            "devDependencies": {
-                "@vitejs/plugin-react": "^4.2.0",
-                "vite": "^5.0.0",
-                "tailwindcss": "^3.3.5",
-                "autoprefixer": "^10.4.16",
-                "postcss": "^8.4.31"
-            }
+    package = {
+        "name": "generated-app-frontend",
+        "version": "1.0.0",
+        "type": "module",
+        "scripts": {
+            "dev": "vite",
+            "build": "vite build",
+            "preview": "vite preview"
+        },
+        "dependencies": {
+            "react": "^18.2.0",
+            "react-dom": "^18.2.0",
+            "react-router-dom": "^6.20.0",
+            "axios": "^1.6.2",
+            "prop-types": "^15.8.1",
+            "lucide-react": "^0.363.0"
+        },
+        "devDependencies": {
+            "@vitejs/plugin-react": "^4.2.0",
+            "vite": "^5.0.0",
+            "tailwindcss": "^3.3.5",
+            "autoprefixer": "^10.4.16",
+            "postcss": "^8.4.31"
         }
-        with open(package_path, "w") as f:
-            json.dump(package, f, indent=2)
-        logger.info("Generated frontend package.json")
+    }
+    with open(package_path, "w") as f:
+        json.dump(package, f, indent=2)
+
 
 
 def write_frontend_scaffold(frontend_dir: str):
@@ -261,9 +262,8 @@ def build_and_push_backend(project_id: str, project_dir: str, env_vars: dict) ->
     
     # Check if Dockerfile exists, create one if not
     dockerfile_path = os.path.join(backend_dir, "Dockerfile")
-    if not os.path.exists(dockerfile_path):
-        with open(dockerfile_path, "w") as f:
-            f.write("""FROM node:20-alpine
+    with open(dockerfile_path, "w") as f:
+        f.write("""FROM node:20-alpine
 WORKDIR /app
 COPY package*.json ./
 RUN npm install

@@ -64,10 +64,11 @@ def count_tokens_estimate(text: str) -> int:
     return len(text) // 4
 
 
+
+
 def write_generated_files(result: dict, output_dir: str = "generated") -> str:
     """Write all generated code files to disk then apply templates."""
     logger = get_logger("file_writer")
-
     os.makedirs(output_dir, exist_ok=True)
 
     all_files = {}
@@ -85,8 +86,14 @@ def write_generated_files(result: dict, output_dir: str = "generated") -> str:
         written.append(full_path)
         logger.info(f"Written: {full_path}")
 
+    # Save plan for alignment agent
+    if result.get("plan"):
+        import json
+        plan_path = os.path.join(output_dir, ".plan.json")
+        with open(plan_path, "w") as f:
+            json.dump(result["plan"], f, indent=2)
+
     # Apply templates AFTER writing agent files
-    # Templates override agent-generated boilerplate with battle-tested versions
     from core.template_engine import apply_all_templates
     apply_all_templates(output_dir)
 
