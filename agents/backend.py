@@ -1,4 +1,5 @@
 import asyncio
+import re
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from core.config import config
@@ -29,21 +30,35 @@ def backend_agent(state: AppState) -> AppState:
         asyncio.run(stream_agent_start(client_id, "backend"))
 
     try:
-        plan = state['plan']
-        api_contracts = plan.get('api_contracts', [])
+        plan = state["plan"]
+        api_contracts = plan.get("api_contracts", [])
+
+        # Format API contracts clearly for the LLM
+        contracts_text = "\n".join([
+            f"  {c['method']} {c['path']} → {c.get('response_shape', '')}"
+            for c in api_contracts
+        ])
+
+        # Identify app-specific models (exclude auth-related)
+        models = plan.get("components", {}).get("backend", {}).get("models", [])
+        app_models = [m for m in models if m.lower() not in ("user",)]
 
         messages = [
             SystemMessage(content=BACKEND_SYSTEM),
             HumanMessage(content=(
                 f"Generate backend code for this app.\n\n"
-                f"Plan: {plan}\n\n"
-                f"API Contracts to implement:\n"
-                f"{chr(10).join(['  ' + r['method'] + ' ' + r['path'] for r in state.get('backend_routes', [])])}\n\n"
-                f"Generate ONLY:\n"
-                f"- backend/src/models/[AppSpecificModel].js (NOT User.js — that's a template)\n"
-                f"- backend/src/routes/index.js (Express Router mounted at /api)\n\n"
+                f"App name: {plan.get('app_name')}\n"
+                f"Description: {plan.get('description')}\n\n"
+                f"API Contracts to implement:\n{contracts_text}\n\n"
+                f"App-specific models to create: {app_models}\n"
+                f"(Do NOT create User.js — it's already in templates)\n\n"
+                f"Generate:\n"
+                f"- backend/src/models/[EachAppModel].js (one file per model)\n"
+                f"- backend/src/routes/index.js (Express Router implementing all /api/* routes)\n\n"
                 f"Templates already handle: server.js, auth.js middleware, User.js, errorHandler.js, routes/auth.js\n"
-                f"Do NOT regenerate those files."
+                f"Do NOT regenerate those files.\n\n"
+                f"The routes/index.js router will be mounted at /api by server.js.\n"
+                f"So a route defined as router.get('/products', ...) is accessible at /api/products."
             ))
         ]
 
@@ -53,8 +68,14 @@ def backend_agent(state: AppState) -> AppState:
         if not backend_code:
             raise ValueError("Backend agent returned invalid JSON")
 
-        # Extract actual routes from generated index.js for frontend to use
+        # Extract actual routes from generated code
         routes_summary = _extract_routes(backend_code)
+        # Also include auth routes from contracts for frontend reference
+        auth_routes = [
+            {"method": c["method"], "path": c["path"]}
+            for c in api_contracts
+            if c["path"].startswith("/auth/")
+        ]
 
         logger.info(f"Backend complete:\n{format_file_summary(backend_code)}")
         logger.info(f"Routes extracted: {routes_summary}")
@@ -65,7 +86,8 @@ def backend_agent(state: AppState) -> AppState:
 
         return {
             "backend_code": backend_code,
-            "backend_routes": routes_summary
+            "backend_routes": routes_summary + auth_routes,
+            "api_contracts": api_contracts,
         }
 
     except Exception as e:
@@ -78,20 +100,21 @@ def backend_agent(state: AppState) -> AppState:
 
 def _extract_routes(backend_code: dict) -> list:
     """Extract route definitions from generated backend code."""
-    import re
     routes = []
 
     for path, content in backend_code.items():
-        if "routes/index.js" in path or "routes/tasks" in path:
-            # Find route definitions: router.get('/tasks', ...)
+        # Match any routes/*.js file (not just tasks)
+        if "routes/" in path and path.endswith(".js") and "auth" not in path:
             matches = re.findall(
                 r"router\.(get|post|put|patch|delete)\(['\"]([^'\"]+)['\"]",
                 content
             )
             for method, route_path in matches:
+                # Normalize: routes/index.js routes are mounted at /api
+                normalized = route_path if route_path.startswith("/api") else f"/api{route_path}"
                 routes.append({
                     "method": method.upper(),
-                    "path": f"/api{route_path}" if not route_path.startswith("/api") else route_path
+                    "path": normalized
                 })
 
     return routes
