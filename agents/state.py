@@ -61,40 +61,30 @@ class BuildAttempt(TypedDict):
     success: bool
 
 
-class RuntimeError(TypedDict):
-    timestamp: str
-    error: str
-    fix_applied: str
-
-
-class SmokeTestResult(TypedDict):
-    endpoint: str
-    passed: bool
-    status_code: int
-    error: Optional[str]
-
-
 class AppState(TypedDict):
     # Input
     user_prompt: str
     client_id: Optional[str]
 
-    # Planner output — full spec
+    # Planner output
     plan: Optional[AppSpec]
 
-    # Parallel agent outputs
+    # Agent outputs
     frontend_code: Optional[dict]
     backend_code: Optional[dict]
     database_code: Optional[dict]
     devops_code: Optional[dict]
 
+    # Derived from backend — what routes actually exist
+    backend_routes: Optional[List[dict]]
+    # Raw API contracts from plan (for frontend reference)
+    api_contracts: Optional[List[APIContract]]
+    # Resource naming info derived from api_contracts
+    resource_info: Optional[dict]
+
     # Review
     review_result: Optional[ReviewResult]
     review_attempts: int
-
-    # Code alignment
-    alignment_issues: Optional[List[str]]
-    alignment_fixed: Optional[bool]
 
     # Build
     build_attempts: Optional[List[BuildAttempt]]
@@ -105,15 +95,6 @@ class AppState(TypedDict):
     # Deploy
     deploy_url: Optional[str]
     alb_dns: Optional[str]
-
-    # Runtime monitoring
-    runtime_errors: Optional[List[RuntimeError]]
-    runtime_fix_attempts: int
-    runtime_healthy: Optional[bool]
-
-    # Smoke test
-    smoke_test_results: Optional[List[SmokeTestResult]]
-    smoke_test_passed: Optional[bool]
 
     # Flow control
     approved: Optional[bool]

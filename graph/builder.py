@@ -14,7 +14,7 @@ MAX_FIX_ATTEMPTS = 3
 
 
 def should_retry_after_review(state: AppState) -> str:
-    """Decide whether to fix frontend or proceed."""
+    """Decide whether to fix frontend or proceed to end."""
     if state.get("error"):
         return "end"
 
@@ -30,14 +30,14 @@ def should_retry_after_review(state: AppState) -> str:
     ]
 
     if critical_issues and attempts < MAX_FIX_ATTEMPTS:
-        logger.info(f"Critical issues found — retrying frontend (attempt {attempts + 1}/{MAX_FIX_ATTEMPTS})")
+        logger.info(f"Critical issues — retrying (attempt {attempts}/{MAX_FIX_ATTEMPTS})")
         return "fix_frontend"
 
     return "end"
 
 
 def fix_frontend_agent(state: AppState) -> AppState:
-    """Fix frontend based on review issues — reads backend + review context."""
+    """Fix frontend based on review issues, using resource context from state."""
     from langchain_openai import ChatOpenAI
     from langchain_core.messages import HumanMessage, SystemMessage
     from core.config import config
@@ -47,12 +47,14 @@ def fix_frontend_agent(state: AppState) -> AppState:
     logger.info("Fix frontend agent started")
     client_id = state.get("client_id")
 
+    if state.get("error"):
+        return {}
+
     review = state.get("review_result", {})
-    issues = review.get("issues", [])
-    critical = [i for i in issues if i.get("severity") == "critical"]
+    critical = [i for i in review.get("issues", []) if i.get("severity") == "critical"]
 
     if not critical:
-        return {}
+        return {"review_attempts": state.get("review_attempts", 0) + 1}
 
     llm = ChatOpenAI(
         model=config.codegen_model,
@@ -61,7 +63,6 @@ def fix_frontend_agent(state: AppState) -> AppState:
         max_retries=config.max_retries
     )
 
-    # Build context with all current frontend files
     existing_frontend = state.get("frontend_code", {})
     files_context = "\n\n".join([
         f"=== {path} ===\n{content}"
@@ -73,18 +74,30 @@ def fix_frontend_agent(state: AppState) -> AppState:
         for i in critical
     ])
 
+    ri = state.get("resource_info", {})
+    resource_context = ""
+    if ri:
+        resource_context = (
+            f"\nResource naming to use:\n"
+            f"  Hook: {ri.get('hook')}, State: {ri.get('resource')}, "
+            f"  Setter: {ri.get('setter')}, Fetch: {ri.get('fetch_fn')}\n"
+            f"  CRUD: {ri.get('add_fn')}, {ri.get('update_fn')}, {ri.get('delete_fn')}\n"
+        )
+
+    backend_routes = state.get("backend_routes", [])
+    routes_text = "\n".join([f"  {r['method']} {r['path']}" for r in backend_routes])
+
     try:
         messages = [
             SystemMessage(content=FRONTEND_SYSTEM),
             HumanMessage(content=(
                 f"Fix these CRITICAL issues in the frontend code.\n\n"
                 f"ISSUES TO FIX:\n{issues_context}\n\n"
-                f"CURRENT FRONTEND FILES:\n{files_context}\n\n"
-                f"Backend routes available:\n"
-                "\n".join([r['method'] + ' ' + r['path'] for r in state.get('backend_routes', [])]) + "\n\n",
-                f"Return ONLY the fixed files in JSON format.\n"
-                f"Include ONLY files that need changes.\n"
-                f"Keep all other files exactly as they are."
+                f"{resource_context}\n"
+                f"Backend routes:\n{routes_text}\n\n"
+                f"CURRENT FILES:\n{files_context}\n\n"
+                f"Return ONLY the fixed files in JSON format (file path → content).\n"
+                f"Include ONLY files that changed. Keep others unchanged."
             ))
         ]
 
@@ -92,10 +105,8 @@ def fix_frontend_agent(state: AppState) -> AppState:
         fixed_code = parse_llm_json(response.content, "fix_frontend")
 
         if fixed_code:
-            # Merge fixed files into existing frontend code
             updated_frontend = {**existing_frontend, **fixed_code}
             logger.info(f"Fixed {len(fixed_code)} files:\n{format_file_summary(fixed_code)}")
-
             return {
                 "frontend_code": updated_frontend,
                 "review_attempts": state.get("review_attempts", 0) + 1
@@ -120,16 +131,15 @@ def build_graph() -> StateGraph:
 
     graph.set_entry_point("planner")
 
-    # Backend, database, devops run after planner
+    # Main path: planner → backend → frontend → review
     graph.add_edge("planner", "backend")
+    graph.add_edge("backend", "frontend")
+    graph.add_edge("frontend", "review")
+
+    # Database and devops run after planner in parallel with backend
+    # They are non-blocking (don't feed into main path)
     graph.add_edge("planner", "database")
     graph.add_edge("planner", "devops")
-
-    # Frontend runs after backend (reads backend routes)
-    graph.add_edge("backend", "frontend")
-
-    # Only frontend triggers review
-    graph.add_edge("frontend", "review")
 
     graph.add_conditional_edges(
         "review",
