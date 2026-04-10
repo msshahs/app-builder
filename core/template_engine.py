@@ -11,28 +11,30 @@ def apply_backend_templates(output_dir: str):
     """Copy fixed backend templates into the generated project."""
     backend_template = os.path.join(TEMPLATES_DIR, "backend")
     backend_output = os.path.join(output_dir, "backend")
-
     os.makedirs(backend_output, exist_ok=True)
 
-    # Copy fixed files
-    fixed_files = [
-        "package.json",
-        "src/server.js",
-        "src/middleware/auth.js",
-        "src/middleware/errorHandler.js",
-        "src/models/User.js",
-        "src/routes/auth.js",
+    # package.json goes to backend/ root (NOT backend/src/)
+    pkg_src = os.path.join(backend_template, "package.json")
+    pkg_dst = os.path.join(backend_output, "package.json")
+    if os.path.exists(pkg_src):
+        shutil.copy2(pkg_src, pkg_dst)
+        logger.info("Template applied: package.json")
+
+    # src/* files go to backend/src/
+    src_files = [
+        "server.js",
+        "middleware/auth.js",
+        "middleware/errorHandler.js",
+        "models/User.js",
+        "routes/auth.js",
     ]
-
-    for file_path in fixed_files:
-        src = os.path.join(backend_template, file_path.replace("src/", ""))
-        dst = os.path.join(backend_output, "src", file_path.replace("src/", ""))
-
+    for file_path in src_files:
+        src = os.path.join(backend_template, file_path)
+        dst = os.path.join(backend_output, "src", file_path)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
-
         if os.path.exists(src):
             shutil.copy2(src, dst)
-            logger.info(f"Template applied: {file_path}")
+            logger.info(f"Template applied: src/{file_path}")
 
     logger.info("Backend templates applied")
 
@@ -41,22 +43,28 @@ def apply_frontend_templates(output_dir: str):
     """Copy fixed frontend templates into the generated project."""
     frontend_template = os.path.join(TEMPLATES_DIR, "frontend")
     frontend_output = os.path.join(output_dir, "frontend")
-
     os.makedirs(frontend_output, exist_ok=True)
 
-    fixed_files = [
+    # All template files to copy (relative to templates/frontend/)
+    all_files = [
+        # Root config files
         "package.json",
+        "vite.config.js",
+        "index.html",
+        "tailwind.config.js",
+        "postcss.config.js",
+        # src files
+        "src/main.jsx",
+        "src/index.css",
         "src/utils/api.js",
         "src/utils/tokenStorage.js",
         "src/hooks/useAuth.js",
     ]
 
-    for file_path in fixed_files:
+    for file_path in all_files:
         src = os.path.join(frontend_template, file_path)
         dst = os.path.join(frontend_output, file_path)
-
         os.makedirs(os.path.dirname(dst), exist_ok=True)
-
         if os.path.exists(src):
             shutil.copy2(src, dst)
             logger.info(f"Template applied: {file_path}")
